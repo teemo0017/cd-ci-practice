@@ -122,3 +122,11 @@ jobs:
           # los builds siguientes son mucho más rápidos.
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Solo se ejecuta si "Build and push" terminó bien (si un step falla,
+      # los siguientes no corren, así nunca disparamos un deploy con una
+      # imagen que no se llegó a publicar).
+      # -f: falla si Render responde con error. -sS: sin barra de progreso,
+      # pero sí muestra el error si algo sale mal.
+      - name: Trigger deploy on Render
+        run: curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"
