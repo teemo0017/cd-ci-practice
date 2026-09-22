@@ -1,0 +1,14 @@
+# No mandes esto al build de Docker: hace el contexto más pesado y lento,
+# y nada de esto lo necesita la imagen.
+node_modules
+.nuxt
+.output
+.git
+.github
+.vscode
+.idea
+tests
+coverage
+*.md
+.env
+.env.*

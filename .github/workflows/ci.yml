@@ -1,4 +1,4 @@
-name: CI
+name: CI & CD
 
 on:
   pull_request:
@@ -70,3 +70,55 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+
+  docker:
+    name: Build & Push Docker image
+    # No corre si lint/typecheck/test/build no terminaron en verde antes.
+    needs: [lint, typecheck, test, build]
+    # Solo publicamos imagen cuando algo YA se mezcló a main, nunca en cada PR.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Este job necesita permiso extra: escribir en GitHub Container Registry.
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # Buildx es el motor de build de Docker de nueva generación:
+      # habilita el cache remoto que usamos más abajo (cache-from/cache-to).
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Login contra GHCR usando el token automático del workflow.
+      # No hace falta crear ningún secreto propio.
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Calcula los tags de la imagen a partir del contexto del repo.
+      # Aquí generamos dos: "latest" y el hash corto del commit.
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Cache de capas reutilizando el cache de GitHub Actions:
+          # los builds siguientes son mucho más rápidos.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
