@@ -3,7 +3,7 @@ name: CI & CD
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, develop]
 
 # Si llega un push nuevo a la misma rama/PR, cancela la ejecución anterior (ya quedó vieja).
 concurrency:
@@ -75,16 +75,32 @@ jobs:
     name: Build & Push Docker image
     # No corre si lint/typecheck/test/build no terminaron en verde antes.
     needs: [lint, typecheck, test, build]
-    # Solo publicamos imagen cuando algo YA se mezcló a main, nunca en cada PR.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Solo publicamos imagen en push a main o develop, nunca en cada PR.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Este es EL cambio clave para multi-environment: según qué rama disparó
+    # el workflow, este job "entra" a un Environment distinto de GitHub
+    # (production o staging). Eso decide de qué lugar salen los secretos
+    # que use ${{ secrets.* }} más abajo, sin tocar el resto del YAML.
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
     # Este job necesita permiso extra: escribir en GitHub Container Registry.
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v7
+
+      # Decide el tag de la imagen según la rama: main -> latest,
+      # develop -> staging. Cada environment despliega SU propio tag.
+      - name: Determine image tag
+        id: vars
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=staging" >> "$GITHUB_OUTPUT"
+          fi
 
       # Buildx es el motor de build de Docker de nueva generación:
       # habilita el cache remoto que usamos más abajo (cache-from/cache-to).
@@ -101,14 +117,16 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Calcula los tags de la imagen a partir del contexto del repo.
-      # Aquí generamos dos: "latest" y el hash corto del commit.
+      # "value" usa el tag que calculamos arriba (latest o staging), y
+      # además siempre agregamos el hash corto del commit, para poder
+      # volver atrás a una versión exacta si algo sale mal.
       - name: Extract image metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=latest
+            type=raw,value=${{ steps.vars.outputs.tag }}
             type=sha,format=short
 
       - name: Build and push
