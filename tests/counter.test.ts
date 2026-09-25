@@ -16,7 +16,10 @@ describe('counter store', () => {
   it('increment suma 1', () => {
     const store = useCounterStore()
     store.increment()
-    expect(store.count).toBe(1)
+    // Roto A PROPÓSITO para la demo de branch protection: increment() suma
+    // 1, así que esto debería ser toBe(1). Lo dejamos en 2 para ver el CI
+    // fallar en rojo.
+    expect(store.count).toBe(2)
   })
 
   it('doubled refleja el doble del contador', () => {
